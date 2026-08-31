@@ -4,3 +4,5 @@
 *.png
 *.log
 vnc.log
+__pycache__/
+*.pyc
