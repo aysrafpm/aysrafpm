@@ -10,7 +10,8 @@ Dirancang untuk **ramah pemula**: pilih disk, atur RAM/CPU, dan boot — tanpa p
 - ☑️ **Menu interaktif** (berbahasa Indonesia) — tidak perlu hafal perintah QEMU
 - ☑️ **Import disk dari Download** — taruh file `.qcow2` / `.iso` di folder Download HP, menu menyalin otomatis
 - ☑️ **Pengaturan Machine** — atur RAM & CPU sesuai kekuatan HP kamu
-- ☑️ **Boot Windows** dengan sekali tekan
+- ☑️ **Boot Windows** (juga bisa untuk **Linux**) dengan sekali tekan
+- ☑️ **Preset Linux** — pengaturan hemat RAM khusus untuk menjalankan Linux ringan
 - ☑️ **Shutdown** yang aman
 - ☑️ **Tools** — screenshot + OCR, analisis warna layar
 - ☑️ Folder otomatis dibuat — tidak bingung mencari lokasi

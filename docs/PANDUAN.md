@@ -1,6 +1,6 @@
 # 📖 Panduan Pengguna AYSRAF PM
 
-Panduan lengkap memakai **AYSRAF PM** untuk menjalankan Windows di Android lewat qemu (Termux).
+Panduan lengkap memakai **AYSRAF PM** untuk menjalankan Windows / Linux di Android lewat qemu (Termux).
 
 ---
 
@@ -10,8 +10,9 @@ Panduan lengkap memakai **AYSRAF PM** untuk menjalankan Windows di Android lewat
 3. [Cara Pakai Menu](#-cara-pakai-menu)
 4. [Menaruh Disk Windows](#-menaruh-disk-windows)
 5. [Mengatur Machine (RAM & CPU)](#-mengatur-machine)
-6. [Memecahkan Masalah (Troubleshooting)](#-memecahkan-masalah)
-7. [Tips Agar Lancar](#-tips-agar-lancar)
+6. [Memasang Linux](#-memasang-linux)
+7. [Memecahkan Masalah (Troubleshooting)](#-memecahkan-masalah)
+8. [Tips Agar Lancar](#-tips-agar-lancar)
 
 ---
 
@@ -115,6 +116,31 @@ Pilih **4 (Machine)** di menu.
 - Disarankan **4**.
 
 > Jika HP terasa lambat, kurangi RAM & core sedikit.
+
+---
+
+## 🐧 Memasang Linux
+
+Selain Windows, AYSRAF PM juga bisa menjalankan **Linux** — dan Linux **jauh lebih ringan** daripada Windows, jadi lebih cocok untuk emulator di HP.
+
+### Distro Linux yang disarankan
+| Distro | RAM | Keterangan |
+|---|---|---|
+| **Lubuntu / Xubuntu** | 1–2 GB | Desktop ringan, mudah dipakai |
+| **Debian (netinst)** | 512 MB | Stabil, fleksibel |
+| **Alpine / AntiX / Puppy** | 256–512 MB | Ultra ringan, CLI/desktop minimal |
+
+**Lubuntu** paling disarankan untuk pemula (ada desktop, ringan, gampang).
+
+### Cara memasang
+1. **Download ISO Linux** (mis. Lubuntu) → taruh di folder **Download** HP.
+2. Buka menu → **2 (Import dari Download)** → pilih file `.iso` → menyalin otomatis.
+3. Buka menu → **4 (Machine) → Preset Linux (hemat RAM)** — otomatis set RAM 1.5GB & 2 core (ringan untuk HP).
+4. Buka menu → **1 (Start Windows)** → pilih ISO → boot installer Linux.
+5. Ikuti instalasi Linux seperti biasa (butuh beberapa menit di emulator).
+6. Setelah terinstal, hasilnya adalah disk `.qcow2` Linux yang bisa dipakai lewat menu seperti Windows.
+
+> 💡 Untuk Linux, RAM yang besar tidak perlu — di menu Machine pilih **Preset Linux** supaya HP tidak panas dan emulator tetap halus.
 
 ---
 

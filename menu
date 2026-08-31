@@ -151,10 +151,11 @@ show_settings() {
 
         choice=$(dialog --title "🖥️  Pengaturan Machine" \
             --menu "\nRAM HP kamu terdeteksi: ±${host_ram} GB\n\nAtur sesuai kemampuan HP. RAM guest tidak boleh\ndekati RAM total HP, sisakan minimal 2GB untuk sistem.\n\nSaat ini terpasang:" 17 55 6 \
-            1 "RAM Windows: ${RAM} MB (${ram_gb} GB)" \
+            1 "RAM: ${RAM} MB (${ram_gb} GB)" \
             2 "CPU Cores: $CPU_CORES" \
-            3 "Ganti Disk Windows" \
-            4 "Panduan RAM & CPU" \
+            3 "Ganti Disk" \
+            4 "Preset Linux (hemat RAM)" \
+            5 "Panduan RAM & CPU" \
             0 "Kembali" \
             2>&1 >/dev/tty)
         
@@ -204,7 +205,26 @@ show_settings() {
                     fi
                 fi
                 ;;
-            4) dialog --title "Panduan RAM & CPU" --msgbox \
+            4) 
+                # Preset Linux: RAM & core hemat biar ringan
+                dialog --title "Preset Linux (Ringan)" --yesno \
+"Pakai pengaturan hemat RAM khusus untuk Linux?
+
+Linux jauh lebih ringan dari Windows, jadi cukup
+RAM kecil & core sedikit — biar HP tidak panas
+dan emulator tetap jalan halus.
+
+  RAM: 1536 MB (1.5 GB)
+  CPU: 2 core
+
+Lanjut?" 11 55
+                if [ $? -eq 0 ]; then
+                    RAM=1536
+                    CPU_CORES=2
+                    dialog --msgbox "Preset Linux diterapkan:\n\nRAM: 1536 MB\nCPU: 2 core\n\nSelanjutnya taruh ISO/disk Linux di Download\ndan pilih 'Import dari Download', lalu Start." 10 55
+                fi
+                ;;
+            5) dialog --title "Panduan RAM & CPU" --msgbox \
 "RAM Windows (guest):
  - HP 4GB  -> pilih 2GB
  - HP 6GB  -> pilih 2.5GB
