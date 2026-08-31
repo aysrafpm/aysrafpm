@@ -150,19 +150,61 @@ show_settings() {
         [ -z "$host_ram" ] && host_ram="?"
 
         choice=$(dialog --title "🖥️  Pengaturan Machine" \
-            --menu "\nRAM HP kamu terdeteksi: ±${host_ram} GB\n\nAtur sesuai kemampuan HP. RAM guest tidak boleh\ndekati RAM total HP, sisakan minimal 2GB untuk sistem.\n\nSaat ini terpasang:" 17 55 6 \
-            1 "RAM: ${RAM} MB (${ram_gb} GB)" \
-            2 "CPU Cores: $CPU_CORES" \
-            3 "Ganti Disk" \
-            4 "Preset Linux (hemat RAM)" \
-            5 "Panduan RAM & CPU" \
+            --menu "\nRAM HP kamu terdeteksi: ±${host_ram} GB\n\nPilih sistem operasi yang mau dijalankan, atau atur\nmanual. RAM guest tidak boleh melebihi RAM HP.\n\nSaat ini terpasang: RAM ${RAM} MB, $CPU_CORES core" 17 60 8 \
+            1 "🪟  Preset Windows" \
+            2 "🐧  Preset Linux (hemat RAM)" \
+            3 "Atur RAM manual" \
+            4 "Atur CPU Core manual" \
+            5 "Ganti Disk" \
+            6 "Panduan RAM & CPU" \
             0 "Kembali" \
             2>&1 >/dev/tty)
         
         case $choice in
-            1) 
-                ram_choice=$(dialog --title "Pilih RAM Windows" \
+            1)
+                # Preset Windows: RAM otomatis sesuai RAM HP, CPU 4
+                ls_pref=2048
+                [ "$host_ram" -ge 12 ] && ls_pref=4096
+                [ "$host_ram" -ge 8 ] && [ "$host_ram" -lt 12 ] && ls_pref=3072
+                [ "$host_ram" -ge 6 ] && [ "$host_ram" -lt 8 ] && ls_pref=2560
+                dialog --title "Preset Windows" --yesno \
+"Pakai pengaturan standar untuk Windows?
+Berikut disesuaikan otomatis dengan RAM HP kamu
+(dideteksi ±${host_ram} GB):
+
+  RAM: ${ls_pref} MB
+  CPU: 4 core
+
+Lanjut?" 11 55
+                if [ $? -eq 0 ]; then
+                    RAM=$ls_pref
+                    CPU_CORES=4
+                    dialog --msgbox "Preset Windows diterapkan:\n\nRAM: ${RAM} MB\nCPU: 4 core\n\nSekarang pilih disk Windows di 'Ganti Disk'\natau langsung 'Start'." 10 55
+                fi
+                ;;
+            2)
+                # Preset Linux: RAM & core hemat biar ringan
+                dialog --title "Preset Linux (Ringan)" --yesno \
+"Pakai pengaturan hemat RAM khusus untuk Linux?
+
+Linux jauh lebih ringan dari Windows, jadi cukup
+RAM kecil & core sedikit — biar HP tidak panas
+dan emulator tetap jalan halus.
+
+  RAM: 1536 MB (1.5 GB)
+  CPU: 2 core
+
+Lanjut?" 11 55
+                if [ $? -eq 0 ]; then
+                    RAM=1536
+                    CPU_CORES=2
+                    dialog --msgbox "Preset Linux diterapkan:\n\nRAM: 1536 MB\nCPU: 2 core\n\nSelanjutnya taruh ISO/disk Linux di Download\ndan pilih 'Import dari Download', lalu Start." 10 55
+                fi
+                ;;
+            3)
+                ram_choice=$(dialog --title "Atur RAM" \
                     --menu "\nSemakin besar RAM, semakin lancar Windows\ntapi semakin berat untuk HP. Pilih sesuai HP-mu:" 13 50 7 \
+                    "1536" "1.5 GB - Linux / HP low-end" \
                     "2048" "2 GB  - HP low-end (4GB)" \
                     "2560" "2.5 GB - HP menengah (6GB)" \
                     "3072" "3 GB  - HP menengah-atas (8GB)" \
@@ -171,18 +213,18 @@ show_settings() {
                     2>&1 >/dev/tty)
                 [ -n "$ram_choice" ] && RAM=$ram_choice
                 ;;
-            2)
-                cpu_choice=$(dialog --title "Pilih CPU Cores" \
-                    --menu "\nJumlah core yang dipinjamkan ke Windows.\nLebih banyak = lebih cepat, tapi HP makin panas.\nDisarankan 4 (pakai setengah core HP):" 13 50 8 \
-                    "2" "2 core - hemat daya" \
+            4)
+                cpu_choice=$(dialog --title "Atur CPU Core" \
+                    --menu "\nJumlah core yang dipinjamkan. Lebih banyak =\nlebih cepat, tapi HP makin panas.\nDisarankan 4 (pakai setengah core HP):" 13 50 8 \
+                    "2" "2 core - hemat daya / Linux" \
                     "3" "3 core" \
-                    "4" "4 core - rekomendasi" \
+                    "4" "4 core - rekomendasi Windows" \
                     "5" "5 core - HP game/8 core" \
                     "6" "6 core - HP kencang" \
                     2>&1 >/dev/tty)
                 [ -n "$cpu_choice" ] && CPU_CORES=$cpu_choice
                 ;;
-            3)
+            5)
                 # List available disks (plus tombol Import)
                 ensure_dirs
                 disks=()
@@ -205,26 +247,7 @@ show_settings() {
                     fi
                 fi
                 ;;
-            4) 
-                # Preset Linux: RAM & core hemat biar ringan
-                dialog --title "Preset Linux (Ringan)" --yesno \
-"Pakai pengaturan hemat RAM khusus untuk Linux?
-
-Linux jauh lebih ringan dari Windows, jadi cukup
-RAM kecil & core sedikit — biar HP tidak panas
-dan emulator tetap jalan halus.
-
-  RAM: 1536 MB (1.5 GB)
-  CPU: 2 core
-
-Lanjut?" 11 55
-                if [ $? -eq 0 ]; then
-                    RAM=1536
-                    CPU_CORES=2
-                    dialog --msgbox "Preset Linux diterapkan:\n\nRAM: 1536 MB\nCPU: 2 core\n\nSelanjutnya taruh ISO/disk Linux di Download\ndan pilih 'Import dari Download', lalu Start." 10 55
-                fi
-                ;;
-            5) dialog --title "Panduan RAM & CPU" --msgbox \
+            6) dialog --title "Panduan RAM & CPU" --msgbox \
 "RAM Windows (guest):
  - HP 4GB  -> pilih 2GB
  - HP 6GB  -> pilih 2.5GB
@@ -232,14 +255,15 @@ Lanjut?" 11 55
  - HP 12GB+ -> pilih 3.5-4GB
 Sisakan minimal 2GB RAM untuk HP itu sendiri.
 
+RAM Linux: cukup 1.5GB (gunakan Preset Linux).
+
 CPU Cores:
- - HP 8-core -> 4-6 core bagus buat Windows
- - HP 4-core -> 2-4 core
-Lebih banyak core = Windows lebih lancar
-tapi HP lebih cepat panas.
+ - Windows: 4-6 core (HP kencang) / 4 (aman)
+ - Linux: 2 core sudah cukup (Preset Linux)
+Lebih banyak core = lebih lancar tapi HP panas.
 
 Tips: kalau makin dipakai makin nge-lag,
-turunkan RAM & core sedikit." 15 55
+turunkan RAM & core sedikit." 16 55
                 ;;
             *) break ;;
         esac

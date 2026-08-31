@@ -11,7 +11,7 @@ Dirancang untuk **ramah pemula**: pilih disk, atur RAM/CPU, dan boot — tanpa p
 - ☑️ **Import disk dari Download** — taruh file `.qcow2` / `.iso` di folder Download HP, menu menyalin otomatis
 - ☑️ **Pengaturan Machine** — atur RAM & CPU sesuai kekuatan HP kamu
 - ☑️ **Boot Windows** (juga bisa untuk **Linux**) dengan sekali tekan
-- ☑️ **Preset Linux** — pengaturan hemat RAM khusus untuk menjalankan Linux ringan
+- ☑️ **Preset Windows & Preset Linux** — pilih sistem operasi dengan sekali klik (RAM/CPU otomatis diatur)
 - ☑️ **Shutdown** yang aman
 - ☑️ **Tools** — screenshot + OCR, analisis warna layar
 - ☑️ Folder otomatis dibuat — tidak bingung mencari lokasi

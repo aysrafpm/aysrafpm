@@ -100,9 +100,16 @@ Kamu **tidak perlu** membuka folder Termux. Cukup:
 
 ## ⚙️ Mengatur Machine
 
-Pilih **4 (Machine)** di menu.
+Pilih **4 (Machine)** di menu — di sini kamu **memilih sistem operasi** yang mau dijalankan:
 
-**RAM Windows** — pilih sesuai HP:
+- **1 - 🪟 Preset Windows** — otomatis set RAM sesuai HP & 4 core. Cocok untuk Windows.
+- **2 - 🐧 Preset Linux** — set RAM 1.5GB & 2 core (hemat, ringan). Cocok untuk Linux.
+- **3 - Atur RAM manual** / **4 - Atur CPU manual** — sesuaikan sendiri sesuai kebutuhan.
+- **5 - Ganti Disk** — pilih disk `.qcow2` yang mau dipakai (Windows **atau** Linux).
+
+> 💡 Aturan mudah: **Windows** pakai RAM lebih besar; **Linux** cukup sedikit (pakai Preset Linux).
+
+**Panduan RAM Windows** (bila atur manual):
 - HP **4 GB** → 2 GB
 - HP **6 GB** → 2,5 GB
 - HP **8 GB** → 3 GB
