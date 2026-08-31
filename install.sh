@@ -25,6 +25,7 @@ cp menu "$SHARE_DIR/menu"
 chmod +x "$SHARE_DIR/menu" "$SHARE_DIR/scripts/"*
 
 echo "[4/7] Membuat launcher..."
+mkdir -p "$BIN_DIR"
 cat > "$BIN_DIR/winqemu" << EOF
 #!/bin/bash
 cd "$SHARE_DIR"
