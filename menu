@@ -1,0 +1,363 @@
+#!/bin/bash
+CONFIG="$HOME/.winqemu.conf"
+source "$CONFIG" 2>/dev/null || { RAM=2560; CPU_CORES=4; DISK="win10-auto.qcow2"; }
+
+DISKS_DIR="$HOME/win-qemu/disks"
+SCRIPTS_DIR="$(cd "$(dirname "$0")" && pwd)/scripts"
+QEMU_CMD="qemu-system-x86_64"
+MONITOR_SOCK="$(dirname "$0")/monitor.sock"
+QMP_SOCK="$(dirname "$0")/qmp.sock"
+BASE_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+check_vm_running() {
+    pgrep -x $QEMU_CMD >/dev/null
+}
+
+wait_for_desktop() {
+    echo "Waiting for Windows to boot (this may take several minutes)..."
+    local i=0
+    while [ $i -lt 20 ]; do
+        sleep 25
+        # Use python to get brightness and avoid bc dependency
+        local bright=$(python3 -c "
+import socket, time
+from PIL import Image, ImageStat
+try:
+    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    s.settimeout(4)
+    s.connect('$MONITOR_SOCK')
+    s.recv(4096)
+    s.settimeout(10)
+    s.send(b'screendump /tmp/winqemu_bright.ppm\n')
+    time.sleep(3)
+    s.close()
+    img = Image.open('/tmp/winqemu_bright.ppm').convert('L')
+    w, h = img.size
+    bright = 100 * ImageStat.Stat(img).mean[0] / 255
+    print(f'{bright:.1f}')
+except:
+    print('')
+" 2>/dev/null)
+        if [ -n "$bright" ]; then
+            if [ $(echo "$bright > 40" | python3 -c "import sys; print(1 if float(sys.stdin.read()) > 40 else 0)" 2>/dev/null || echo 0) -eq 1 ]; then
+                echo "✅ Desktop ready (brightness: $bright%)"
+                return 0
+            fi
+        fi
+        i=$((i+1))
+    done
+    echo "⚠️  Boot timeout. Check manually."
+    return 1
+}
+
+# Pastikan folder & subfolder ada (buat otomatis kalau belum)
+ensure_dirs() {
+    mkdir -p "$HOME/win-qemu/disks" "$HOME/win-qemu/isos" "$HOME/win-qemu/transfer"
+}
+
+# Pilih disk dari folder. Kalau kosong, beri panduan & buka folder.
+pick_disk() {
+    ensure_dirs
+    local disks=()
+    while IFS= read -r f; do
+        [ -f "$f" ] && disks+=("$(basename "$f")" "" "$(du -h "$f" | cut -f1)" "")
+    done < <(ls -1 "$DISKS_DIR"/*.qcow2 2>/dev/null)
+
+    if [ ${#disks[@]} -eq 0 ]; then
+        dialog --title "Disk qcow2 tidak ditemukan" --msgbox \
+"Buat pakai Windows, kamu butuh file disk (.qcow2).
+
+Letakkan filenya di folder:
+  ~/win-qemu/disks/
+
+Folder sudah dibuka otomatis. Taruh file di sana, lalu pilih Start lagi." 10 60
+        # Buka folder biar pemula gak bingung cari
+        (termux-open "$HOME/win-qemu/disks/" >/dev/null 2>&1 || true)
+        return 1
+    fi
+
+    if [ ${#disks[@]} -eq 2 ]; then
+        # cuma 1 disk, langsung pakai
+        echo "${disks[0]}"
+        return 0
+    fi
+
+    # banyak disk, biarkan user memilih
+    local sel
+    sel=$(dialog --title "Pilih Disk" --menu "Disk .qcow2 yang ada:" 15 50 8 "${disks[@]}" 2>&1 >/dev/tty)
+    echo "$sel"
+}
+
+start_vm() {
+    local disk="$1"
+    ensure_dirs
+
+    # Kalau disk belum ditentukan/ada, minta pilih
+    if [ -z "$disk" ] || [ ! -f "$DISKS_DIR/$disk" ]; then
+        disk=$(pick_disk)
+        [ -z "$disk" ] && return
+    fi
+
+    if check_vm_running; then
+        dialog --msgbox "VM is already running. Shutdown first." 6 50
+        return
+    fi
+    
+    # Cleanup sockets
+    rm -f "$MONITOR_SOCK" "$QMP_SOCK"
+    
+    # Start QEMU in background
+    cd "$BASE_DIR"
+    nohup setsid sh "$SCRIPTS_DIR/boot-fast.sh" > "$BASE_DIR/vm.log" 2>&1 </dev/null &
+    
+    wait_for_desktop
+    # Reconnect viewer
+    if command -v vncviewer >/dev/null; then
+        nohup env DISPLAY=:0 vncviewer -FullScreen=1 127.0.0.1:5901 >/dev/null 2>&1 &
+    fi
+}
+
+shutdown_vm() {
+    if check_vm_running; then
+        # Send ACPI shutdown using python (avoid socat dependency)
+        python3 -c "
+import socket, time
+try:
+    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    s.settimeout(4)
+    s.connect('$MONITOR_SOCK')
+    s.recv(4096)
+    s.settimeout(8)
+    s.send(b'system_powerdown\n')
+    time.sleep(2)
+    s.close()
+    print('Shutdown signal sent')
+except Exception as e:
+    print('Error: ' + str(e))
+" >/dev/null 2>&1
+        dialog --msgbox "Shutdown signal sent. Wait a moment for VM to stop." 6 50
+    else
+        dialog --msgbox "VM is not running." 6 50
+    fi
+}
+
+show_settings() {
+    while true; do
+        # Tampilkan RAM dalam GB biar gampang dibaca
+        ram_gb=$(echo "scale=1; $RAM/1024" | bc 2>/dev/null || echo "$((RAM/1024)).$(( (RAM%1024)*10/1024 ))")
+        # Deteksi RAM HP (host) untuk panduan
+        host_ram=$(grep MemTotal /proc/meminfo 2>/dev/null | awk '{printf "%.0f", $2/1024/1024}')
+        [ -z "$host_ram" ] && host_ram="?"
+
+        choice=$(dialog --title "🖥️  Pengaturan Machine" \
+            --menu "\nRAM HP kamu terdeteksi: ±${host_ram} GB\n\nAtur sesuai kemampuan HP. RAM guest tidak boleh\ndekati RAM total HP, sisakan minimal 2GB untuk sistem.\n\nSaat ini terpasang:" 17 55 6 \
+            1 "RAM Windows: ${RAM} MB (${ram_gb} GB)" \
+            2 "CPU Cores: $CPU_CORES" \
+            3 "Ganti Disk Windows" \
+            4 "Panduan RAM & CPU" \
+            0 "Kembali" \
+            2>&1 >/dev/tty)
+        
+        case $choice in
+            1) 
+                ram_choice=$(dialog --title "Pilih RAM Windows" \
+                    --menu "\nSemakin besar RAM, semakin lancar Windows\ntapi semakin berat untuk HP. Pilih sesuai HP-mu:" 13 50 7 \
+                    "2048" "2 GB  - HP low-end (4GB)" \
+                    "2560" "2.5 GB - HP menengah (6GB)" \
+                    "3072" "3 GB  - HP menengah-atas (8GB)" \
+                    "3584" "3.5 GB - HP atas (8-12GB)" \
+                    "4096" "4 GB  - HP flagship (12GB+)" \
+                    2>&1 >/dev/tty)
+                [ -n "$ram_choice" ] && RAM=$ram_choice
+                ;;
+            2)
+                cpu_choice=$(dialog --title "Pilih CPU Cores" \
+                    --menu "\nJumlah core yang dipinjamkan ke Windows.\nLebih banyak = lebih cepat, tapi HP makin panas.\nDisarankan 4 (pakai setengah core HP):" 13 50 8 \
+                    "2" "2 core - hemat daya" \
+                    "3" "3 core" \
+                    "4" "4 core - rekomendasi" \
+                    "5" "5 core - HP game/8 core" \
+                    "6" "6 core - HP kencang" \
+                    2>&1 >/dev/tty)
+                [ -n "$cpu_choice" ] && CPU_CORES=$cpu_choice
+                ;;
+            3)
+                # List available disks (plus tombol Import)
+                ensure_dirs
+                disks=()
+                for f in "$DISKS_DIR"/*.qcow2; do
+                    [ -f "$f" ] && disks+=("$(basename "$f")" "")
+                done
+                if [ ${#disks[@]} -eq 0 ]; then
+                    dialog --title "Ganti Disk" --yesno \
+"Belum ada disk. Mau import dari folder Download sekarang?" 7 45
+                    if [ $? -eq 0 ]; then
+                        import_disk
+                    fi
+                else
+                    disks+=("== Import dari Download ==" "")
+                    new_disk=$(dialog --menu "Select disk" 15 50 6 "${disks[@]}" 2>&1 >/dev/tty)
+                    if [ "$new_disk" = "== Import dari Download ==" ]; then
+                        import_disk
+                    elif [ -n "$new_disk" ]; then
+                        DISK=$new_disk
+                    fi
+                fi
+                ;;
+            4) dialog --title "Panduan RAM & CPU" --msgbox \
+"RAM Windows (guest):
+ - HP 4GB  -> pilih 2GB
+ - HP 6GB  -> pilih 2.5GB
+ - HP 8GB  -> pilih 3GB
+ - HP 12GB+ -> pilih 3.5-4GB
+Sisakan minimal 2GB RAM untuk HP itu sendiri.
+
+CPU Cores:
+ - HP 8-core -> 4-6 core bagus buat Windows
+ - HP 4-core -> 2-4 core
+Lebih banyak core = Windows lebih lancar
+tapi HP lebih cepat panas.
+
+Tips: kalau makin dipakai makin nge-lag,
+turunkan RAM & core sedikit." 15 55
+                ;;
+            *) break ;;
+        esac
+    done
+    # Simpan config
+    cat > "$CONFIG" << EOF
+RAM=$RAM
+CPU_CORES=$CPU_CORES
+DISK=$DISK
+EOF
+}
+
+tools_menu() {
+    while true; do
+        choice=$(dialog --menu "Tools" 15 50 5 \
+            1 "Screenshot + OCR" \
+            2 "Analyze Colors" \
+            3 "Open Transfer Folder" \
+            0 "Back" \
+            2>&1 >/dev/tty)
+        
+        case $choice in
+            1) python3 "$SCRIPTS_DIR/scr.py" -f full ;;
+            2) 
+                if check_vm_running; then
+                    ppm="/tmp/winqemu_analyze.ppm"
+                    python3 -c "
+import socket, time
+s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+s.settimeout(4)
+s.connect('$MONITOR_SOCK')
+s.recv(4096)
+s.settimeout(8)
+s.send(b'screendump $ppm\n')
+time.sleep(3)
+s.close()
+" >/dev/null 2>&1
+                    if [ -f "$ppm" ]; then
+                        convert "$ppm" "/tmp/winqemu_analyze.png" >/dev/null 2>&1
+                        python3 "$SCRIPTS_DIR/analyze.py" "/tmp/winqemu_analyze.png" 2>/dev/null | grep -v "px ="
+                        read -p "Press Enter to continue..."
+                    fi
+                else
+                    dialog --msgbox "VM is not running." 6 50
+                fi
+                ;;
+            3) termux-open "$HOME/win-qemu/transfer/" 2>/dev/null || termux-open "$HOME/win-qemu/" ;;
+            *) break ;;
+        esac
+    done
+}
+
+import_disk() {
+    ensure_dirs
+    # Sumber: folder Download (folder publik yang gampang diakses user)
+    local src_dirs=(
+        "$HOME/storage/downloads"
+        "/storage/emulated/0/Download"
+    )
+    local found=()
+    for d in "${src_dirs[@]}"; do
+        [ -d "$d" ] || continue
+        while IFS= read -r f; do
+            [ -f "$f" ] && found+=("$f")
+        done < <(ls -1 "$d"/*.qcow2 "$d"/*.iso 2>/dev/null)
+    done
+
+    if [ ${#found[@]} -eq 0 ]; then
+        dialog --title "Import Disk" --msgbox \
+"Tidak ada file .qcow2 / .iso di folder Download.
+
+Cara pakai:
+1. Download/buat file disk Windows (.qcow2) atau ISO Windows
+2. Taruh di folder download HP kamu (biasanya: Internal Storage/Download)
+3. Kembali ke menu lalu pilih 'Import dari Download'
+4. File akan disalin otomatis ke folder yang benar" 12 60
+        return
+    fi
+
+    # Tampilkan daftar file yang ditemukan untuk dipilih
+    local list=()
+    for f in "${found[@]}"; do
+        list+=("$f" "$(du -h "$f" | cut -f1)")
+    done
+    local chosen
+    chosen=$(dialog --title "Pilih File" --menu "File di Download:" 15 60 8 "${list[@]}" 2>&1 >/dev/tty)
+    [ -z "$chosen" ] && return
+
+    local base ext
+    base=$(basename "$chosen")
+    ext="${base##*.}"
+
+    if [ "$ext" = "qcow2" ]; then
+        local dest="$DISKS_DIR/$base"
+        dialog --title "Import" --infobox "Menyalin disk...\n$base\n\nMohon tunggu, file besar butuh waktu." 6 40
+        if [ -f "$dest" ]; then
+            dialog --title "Sudah Ada" --yesno "File '$base' sudah ada di folder disk.\n\nTimpa dengan file baru ini?" 8 50
+            [ $? -ne 0 ] && return
+        fi
+        cp "$chosen" "$dest" 2>/dev/null
+        if [ -f "$dest" ]; then
+            dialog --msgbox "✅ Selesai.\n\n'$base' sudah disalin ke folder disk.\nSekarang pilih 'Start Windows' untuk memakainya." 8 60
+        else
+            dialog --msgbox "❌ Gagal menyalin. Cek sisa penyimpanan dan izin storage." 6 55
+        fi
+    elif [ "$ext" = "iso" ]; then
+        local dest="$HOME/win-qemu/isos/$base"
+        dialog --title "Import" --infobox "Menyalin ISO...\n$base\n\nMohon tunggu, file besar butuh waktu." 6 40
+        cp "$chosen" "$dest" 2>/dev/null
+        if [ -f "$dest" ]; then
+            dialog --msgbox "✅ Selesai.\n\n'$base' disalin ke isos/ (dipakai untuk install Windows)." 7 55
+        else
+            dialog --msgbox "❌ Gagal menyalin. Cek sisa penyimpanan dan izin storage." 6 55
+        fi
+    else
+        dialog --msgbox "Format file tidak didukung. Butuh .qcow2 atau .iso" 6 50
+    fi
+}
+
+# Main menu
+while true; do
+    clear
+    choice=$(dialog --title "AYSRAF PM v1.0" \
+        --menu "Select an option" 18 60 10 \
+        1 "Start Windows" \
+        2 "Import dari Download" \
+        3 "Shutdown VM" \
+        4 "Machine (RAM & CPU)" \
+        5 "Tools" \
+        6 "Exit" \
+        2>&1 >/dev/tty)
+    
+    case $choice in
+        1) start_vm "" ;;
+        2) import_disk ;;
+        3) shutdown_vm ;;
+        4) show_settings ;;
+        5) tools_menu ;;
+        *) clear; exit 0 ;;
+    esac
+done
