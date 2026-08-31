@@ -14,6 +14,7 @@ Dirancang untuk **ramah pemula**: pilih disk, atur RAM/CPU, dan boot — tanpa p
 - ☑️ **Shutdown** yang aman
 - ☑️ **Tools** — screenshot + OCR, analisis warna layar
 - ☑️ Folder otomatis dibuat — tidak bingung mencari lokasi
+- 📖 Panduan pengguna lengkap: [docs/PANDUAN.md](docs/PANDUAN.md)
 
 ---
 
