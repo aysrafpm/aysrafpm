@@ -56,20 +56,21 @@ ensure_dirs() {
     mkdir -p "$HOME/win-qemu/disks" "$HOME/win-qemu/isos" "$HOME/win-qemu/transfer"
 }
 
-# Pilih disk dari folder. Kalau kosong, beri panduan & buka folder.
+# Pilih file OS (disk .qcow2 atau ISO .iso). 
+# Ini daftar murni "pilih file" — pemilihan disk muncul nanti (untuk ISO).
 pick_disk() {
     ensure_dirs
-    local win_disks=() linux_isos=()
-    # Disk .qcow2 (Windows/OS terinstall)
+    local items=()
+    # Disk .qcow2 (OS terinstall)
     while IFS= read -r f; do
-        [ -f "$f" ] && win_disks+=("$(basename "$f")" "$(du -h "$f" | cut -f1)")
+        [ -f "$f" ] && items+=("$(basename "$f")" "Disk (OS terinstall)")
     done < <(ls -1 "$DISKS_DIR"/*.qcow2 2>/dev/null)
-    # File ISO (installer / live) — Linux/OS lain
+    # File ISO (installer / live)
     while IFS= read -r f; do
-        [ -f "$f" ] && linux_isos+=("$(basename "$f")" "$(du -h "$f" | cut -f1)")
+        [ -f "$f" ] && items+=("$(basename "$f")" "ISO (installer/live)")
     done < <(ls -1 "$ISOS_DIR"/*.iso 2>/dev/null)
 
-    if [ $(( ${#win_disks[@]} + ${#linux_isos[@]} )) -eq 0 ]; then
+    if [ ${#items[@]} -eq 0 ]; then
         dialog --title "Tidak ada disk/ISO" --msgbox \
 "Tidak ada file disk (.qcow2) atau installer (.iso).
 
@@ -82,31 +83,17 @@ menyalin file dari folder Download HP kamu." 10 60
         return 1
     fi
 
-    # Susun menu per kelompok (Windows duluan, lalu Linux/ISO)
-    local menu_items=()
-    if [ ${#win_disks[@]} -gt 0 ]; then
-        menu_items+=("[ Windows ]" "OS yang sudah terinstal")
-        menu_items+=("${win_disks[@]}")
-    fi
-    if [ ${#linux_isos[@]} -gt 0 ]; then
-        menu_items+=("[ Linux / ISO ]" "Installer atau Live")
-        menu_items+=("${linux_isos[@]}")
+    # Kalau cuma 1 file, langsung pakai
+    if [ ${#items[@]} -eq 2 ]; then
+        echo "${items[0]}"
+        return 0
     fi
 
-    # Kalau cuma 1 pilihan nyata, langsung pakai (lewatkan header)
-    local real_count=$(( (${#win_disks[@]} + ${#linux_isos[@]}) / 2 ))
-    if [ "$real_count" -eq 1 ]; then
-        [ ${#win_disks[@]} -gt 0 ] && echo "${win_disks[0]}" && return 0
-        echo "${linux_isos[0]}" && return 0
-    fi
-
-    # banyak file, biarkan user memilih (header jadi pilihan yang dilewati)
+    # Banyak file: biarkan user memilih (daftar polos, tanpa kelompok)
     local sel
-    sel=$(dialog --title "Pilih File" --menu "Pilih sistem (Windows / Linux / ISO):" 18 62 12 \
-        "${menu_items[@]}" 2>&1 >/dev/tty)
-    case "$sel" in
-        "[ Windows ]"|"[ Linux / ISO ]") sel="" ;;  # header bukan file nyata
-    esac
+    sel=$(dialog --title "Pilih File OS" --menu \
+"\nPilih file sistem operasi.\n(Setelah dipilih, disk tempat install akan ditanyakan.)" \
+        18 60 8 "${items[@]}" 2>&1 >/dev/tty)
     [[ "$sel" == *".qcow2" || "$sel" == *".iso" ]] && echo "$sel" || echo ""
 }
 
@@ -120,13 +107,19 @@ create_new_disk() {
          "30" "30 GB - Windows / banyak ruang" \
          2>&1 >/dev/tty)
     [ -z "$ds_sz" ] && return ""
-    read -r -p "Nama disk baru (contoh: linux-01): " nm < /dev/tty
+    nm=$(dialog --title "Nama Disk Baru" --inputbox \
+"Nama disk baru (tanpa ekstensi):" 8 50 "linux-01" \
+         2>&1 >/dev/tty)
     [ -z "$nm" ] && return ""
-    local f="$DISKS_DIR/$nm.qcow2"
-    dialog --infobox "Membuat disk ${ds_sz}GB...\n$nm.qcow2\n\nMohon tunggu." 6 40
+    # bersihkan spasi/karakter aneh & pastikan akhiran .qcow2
+    nm="${nm//[^a-zA-Z0-9._-]/}"
+    [ -z "$nm" ] && return ""
+    [[ "$nm" != *.qcow2 ]] && nm="$nm.qcow2"
+    local f="$DISKS_DIR/$nm"
+    dialog --infobox "Membuat disk ${ds_sz}GB...\n$nm\n\nMohon tunggu." 6 40
     if qemu-img create -f qcow2 "$f" "${ds_sz}G" >/dev/null 2>&1; then
-        dialog --msgbox "✅ Disk dibuat:\n\n$nm.qcow2 (${ds_sz} GB)\n\nSekarang pilih disk ini untuk install OS." 8 55
-        echo "$nm.qcow2"
+        dialog --msgbox "✅ Disk dibuat:\n\n$nm (${ds_sz} GB)\n\nSekarang pilih disk ini untuk install OS." 8 55
+        echo "$nm"
     else
         dialog --msgbox "❌ Gagal membuat disk. Periksa penyimpanan." 6 55
         return ""
