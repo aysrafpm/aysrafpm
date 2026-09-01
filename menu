@@ -59,17 +59,17 @@ ensure_dirs() {
 # Pilih disk dari folder. Kalau kosong, beri panduan & buka folder.
 pick_disk() {
     ensure_dirs
-    local disks=()
-    # File disk .qcow2 (Windows/Linux terinstall)
+    local win_disks=() linux_isos=()
+    # Disk .qcow2 (Windows/OS terinstall)
     while IFS= read -r f; do
-        [ -f "$f" ] && disks+=("$(basename "$f")" "Disk (qcow2)" "$(du -h "$f" | cut -f1)" "")
+        [ -f "$f" ] && win_disks+=("$(basename "$f")" "$(du -h "$f" | cut -f1)")
     done < <(ls -1 "$DISKS_DIR"/*.qcow2 2>/dev/null)
-    # File ISO (installer / live) — untuk boot/install
+    # File ISO (installer / live) — Linux/OS lain
     while IFS= read -r f; do
-        [ -f "$f" ] && disks+=("$(basename "$f")" "ISO (installer/live)" "$(du -h "$f" | cut -f1)" "")
+        [ -f "$f" ] && linux_isos+=("$(basename "$f")" "$(du -h "$f" | cut -f1)")
     done < <(ls -1 "$ISOS_DIR"/*.iso 2>/dev/null)
 
-    if [ ${#disks[@]} -eq 0 ]; then
+    if [ $(( ${#win_disks[@]} + ${#linux_isos[@]} )) -eq 0 ]; then
         dialog --title "Tidak ada disk/ISO" --msgbox \
 "Tidak ada file disk (.qcow2) atau installer (.iso).
 
@@ -82,16 +82,32 @@ menyalin file dari folder Download HP kamu." 10 60
         return 1
     fi
 
-    if [ ${#disks[@]} -eq 4 ]; then
-        # cuma 1 file, langsung pakai
-        echo "${disks[0]}"
-        return 0
+    # Susun menu per kelompok (Windows duluan, lalu Linux/ISO)
+    local menu_items=()
+    if [ ${#win_disks[@]} -gt 0 ]; then
+        menu_items+=("[ Windows ]" "OS yang sudah terinstal")
+        menu_items+=("${win_disks[@]}")
+    fi
+    if [ ${#linux_isos[@]} -gt 0 ]; then
+        menu_items+=("[ Linux / ISO ]" "Installer atau Live")
+        menu_items+=("${linux_isos[@]}")
     fi
 
-    # banyak file, biarkan user memilih
+    # Kalau cuma 1 pilihan nyata, langsung pakai (lewatkan header)
+    local real_count=$(( (${#win_disks[@]} + ${#linux_isos[@]}) / 2 ))
+    if [ "$real_count" -eq 1 ]; then
+        [ ${#win_disks[@]} -gt 0 ] && echo "${win_disks[0]}" && return 0
+        echo "${linux_isos[0]}" && return 0
+    fi
+
+    # banyak file, biarkan user memilih (header jadi pilihan yang dilewati)
     local sel
-    sel=$(dialog --title "Pilih File" --menu "Pilih sistem (disk atau ISO):" 18 60 10 "${disks[@]}" 2>&1 >/dev/tty)
-    echo "$sel"
+    sel=$(dialog --title "Pilih File" --menu "Pilih sistem (Windows / Linux / ISO):" 18 62 12 \
+        "${menu_items[@]}" 2>&1 >/dev/tty)
+    case "$sel" in
+        "[ Windows ]"|"[ Linux / ISO ]") sel="" ;;  # header bukan file nyata
+    esac
+    [[ "$sel" == *".qcow2" || "$sel" == *".iso" ]] && echo "$sel" || echo ""
 }
 
 # Buat disk kosong baru (format qcow2). Echo nama file jika berhasil.
