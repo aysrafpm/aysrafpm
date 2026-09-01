@@ -56,45 +56,63 @@ ensure_dirs() {
     mkdir -p "$HOME/win-qemu/disks" "$HOME/win-qemu/isos" "$HOME/win-qemu/transfer"
 }
 
-# Pilih file OS (disk .qcow2 atau ISO .iso). 
-# Ini daftar murni "pilih file" — pemilihan disk muncul nanti (untuk ISO).
+# Pilih ISO (installer / live) untuk start. Disk (yang sudah jadi OS)
+# di-boot lewat menu terpisah, tidak dicampur di sini.
 pick_disk() {
     ensure_dirs
     local items=()
-    # Disk .qcow2 (OS terinstall)
-    while IFS= read -r f; do
-        [ -f "$f" ] && items+=("$(basename "$f")" "Disk (OS terinstall)")
-    done < <(ls -1 "$DISKS_DIR"/*.qcow2 2>/dev/null)
-    # File ISO (installer / live)
+    # File ISO (installer / live) saja — bukan disk
     while IFS= read -r f; do
         [ -f "$f" ] && items+=("$(basename "$f")" "ISO (installer/live)")
     done < <(ls -1 "$ISOS_DIR"/*.iso 2>/dev/null)
 
     if [ ${#items[@]} -eq 0 ]; then
-        dialog --title "Tidak ada disk/ISO" --msgbox \
-"Tidak ada file disk (.qcow2) atau installer (.iso).
+        dialog --title "Tidak ada ISO" --msgbox \
+"Tidak ada file installer (.iso) di folder:
+  ~/win-qemu/isos/
 
-Letakkan filenya di:
-  disk:  ~/win-qemu/disks/
-  ISO:   ~/win-qemu/isos/
-
-Atau pakai menu 'Import dari Download' untuk otomatis
-menyalin file dari folder Download HP kamu." 10 60
+Salin ISO lewat menu 'Import dari Download', atau letakkan
+langsung di folder isos/ tersebut." 9 55
         return 1
     fi
 
-    # Kalau cuma 1 file, langsung pakai
+    # Kalau cuma 1 ISO, langsung pakai
     if [ ${#items[@]} -eq 2 ]; then
         echo "${items[0]}"
         return 0
     fi
 
-    # Banyak file: biarkan user memilih (daftar polos, tanpa kelompok)
+    # Banyak ISO: biarkan user memilih
     local sel
-    sel=$(dialog --title "Pilih File OS" --menu \
-"\nPilih file sistem operasi.\n(Setelah dipilih, disk tempat install akan ditanyakan.)" \
+    sel=$(dialog --title "Pilih File ISO" --menu \
+"\nPilih file installer/live untuk dijalankan.\n(Disk tempat install akan ditanyakan setelahnya.)" \
         18 60 8 "${items[@]}" 2>&1 >/dev/tty)
-    [[ "$sel" == *".qcow2" || "$sel" == *".iso" ]] && echo "$sel" || echo ""
+    [[ "$sel" == *".iso" ]] && echo "$sel" || echo ""
+}
+
+# Boot disk yang sudah jadi OS (mis. Windows .qcow2) langsung.
+# Menampilkan daftar disk di disks/; pilihan langsung boot tanpa tanya install.
+boot_installed_disk() {
+    ensure_dirs
+    local items=()
+    while IFS= read -r f; do
+        [ -f "$f" ] && items+=("$(basename "$f")" "$(du -h "$f" | cut -f1)")
+    done < <(ls -1 "$DISKS_DIR"/*.qcow2 2>/dev/null)
+
+    if [ ${#items[@]} -eq 0 ]; then
+        dialog --title "Tidak Ada Disk" --msgbox \
+"Belum ada disk OS di folder:
+  ~/win-qemu/disks/
+
+Disk dibuat saat menginstall lewat ISO, atau diimport
+lewat menu 'Import dari Download'." 9 55
+        return ""
+    fi
+
+    local sel
+    sel=$(dialog --title "Boot Disk (OS terinstall)" --menu \
+"\nPilih disk OS untuk langsung boot:" 14 55 8 "${items[@]}" 2>&1 >/dev/tty)
+    [[ "$sel" == *".qcow2" ]] && echo "$sel" || echo ""
 }
 
 # Buat disk kosong baru (format qcow2). Echo nama file jika berhasil.
@@ -512,20 +530,22 @@ while true; do
     clear
     choice=$(dialog --title "AYSRAF PM v1.0" \
         --menu "Select an option" 18 60 10 \
-        1 "Start VM (Windows / Linux)" \
-        2 "Import dari Download" \
-        3 "Shutdown VM" \
-        4 "Machine (RAM & CPU)" \
-        5 "Tools" \
-        6 "Exit" \
+        1 "Start dari ISO (install)" \
+        2 "Boot Disk (OS terinstall)" \
+        3 "Import dari Download" \
+        4 "Shutdown VM" \
+        5 "Machine (RAM & CPU)" \
+        6 "Tools" \
+        7 "Exit" \
         2>&1 >/dev/tty)
     
     case $choice in
         1) start_vm "" ;;
-        2) import_disk ;;
-        3) shutdown_vm ;;
-        4) show_settings ;;
-        5) tools_menu ;;
+        2) d=$(boot_installed_disk); [ -n "$d" ] && start_vm "$d" ;;
+        3) import_disk ;;
+        4) shutdown_vm ;;
+        5) show_settings ;;
+        6) tools_menu ;;
         *) clear; exit 0 ;;
     esac
 done
