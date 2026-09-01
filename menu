@@ -3,6 +3,7 @@ CONFIG="$HOME/.winqemu.conf"
 source "$CONFIG" 2>/dev/null || { RAM=2560; CPU_CORES=4; DISK="win10-auto.qcow2"; }
 
 DISKS_DIR="$HOME/win-qemu/disks"
+ISOS_DIR="$HOME/win-qemu/isos"
 SCRIPTS_DIR="$(cd "$(dirname "$0")" && pwd)/scripts"
 QEMU_CMD="qemu-system-x86_64"
 MONITOR_SOCK="$(dirname "$0")/monitor.sock"
@@ -59,32 +60,37 @@ ensure_dirs() {
 pick_disk() {
     ensure_dirs
     local disks=()
+    # File disk .qcow2 (Windows/Linux terinstall)
     while IFS= read -r f; do
-        [ -f "$f" ] && disks+=("$(basename "$f")" "" "$(du -h "$f" | cut -f1)" "")
+        [ -f "$f" ] && disks+=("$(basename "$f")" "Disk (qcow2)" "$(du -h "$f" | cut -f1)" "")
     done < <(ls -1 "$DISKS_DIR"/*.qcow2 2>/dev/null)
+    # File ISO (installer / live) — untuk boot/install
+    while IFS= read -r f; do
+        [ -f "$f" ] && disks+=("$(basename "$f")" "ISO (installer/live)" "$(du -h "$f" | cut -f1)" "")
+    done < <(ls -1 "$ISOS_DIR"/*.iso 2>/dev/null)
 
     if [ ${#disks[@]} -eq 0 ]; then
-        dialog --title "Disk qcow2 tidak ditemukan" --msgbox \
-"Buat pakai Windows, kamu butuh file disk (.qcow2).
+        dialog --title "Tidak ada disk/ISO" --msgbox \
+"Tidak ada file disk (.qcow2) atau installer (.iso).
 
-Letakkan filenya di folder:
-  ~/win-qemu/disks/
+Letakkan filenya di:
+  disk:  ~/win-qemu/disks/
+  ISO:   ~/win-qemu/isos/
 
-Folder sudah dibuka otomatis. Taruh file di sana, lalu pilih Start lagi." 10 60
-        # Buka folder biar pemula gak bingung cari
-        (termux-open "$HOME/win-qemu/disks/" >/dev/null 2>&1 || true)
+Atau pakai menu 'Import dari Download' untuk otomatis
+menyalin file dari folder Download HP kamu." 10 60
         return 1
     fi
 
-    if [ ${#disks[@]} -eq 2 ]; then
-        # cuma 1 disk, langsung pakai
+    if [ ${#disks[@]} -eq 4 ]; then
+        # cuma 1 file, langsung pakai
         echo "${disks[0]}"
         return 0
     fi
 
-    # banyak disk, biarkan user memilih
+    # banyak file, biarkan user memilih
     local sel
-    sel=$(dialog --title "Pilih Disk" --menu "Disk .qcow2 yang ada:" 15 50 8 "${disks[@]}" 2>&1 >/dev/tty)
+    sel=$(dialog --title "Pilih File" --menu "Pilih sistem (disk atau ISO):" 18 60 10 "${disks[@]}" 2>&1 >/dev/tty)
     echo "$sel"
 }
 
@@ -92,8 +98,8 @@ start_vm() {
     local disk="$1"
     ensure_dirs
 
-    # Kalau disk belum ditentukan/ada, minta pilih
-    if [ -z "$disk" ] || [ ! -f "$DISKS_DIR/$disk" ]; then
+    # Kalau disk belum ditentukan, minta pilih
+    if [ -z "$disk" ]; then
         disk=$(pick_disk)
         [ -z "$disk" ] && return
     fi
@@ -105,10 +111,22 @@ start_vm() {
     
     # Cleanup sockets
     rm -f "$MONITOR_SOCK" "$QMP_SOCK"
-    
+
+    # Resolve path file (bisa .qcow2 di disks/ atau .iso di isos/)
+    local FILE_PATH=""
+    if [[ "$disk" == *.iso ]]; then
+        FILE_PATH="$ISOS_DIR/$disk"
+    else
+        FILE_PATH="$DISKS_DIR/$disk"
+    fi
+    if [ ! -f "$FILE_PATH" ]; then
+        dialog --msgbox "File tidak ditemukan: $FILE_PATH" 6 55
+        return
+    fi
+
     # Start QEMU in background
     cd "$BASE_DIR"
-    nohup setsid sh "$SCRIPTS_DIR/boot-fast.sh" > "$BASE_DIR/vm.log" 2>&1 </dev/null &
+    nohup setsid sh "$SCRIPTS_DIR/boot-fast.sh" "$FILE_PATH" > "$BASE_DIR/vm.log" 2>&1 </dev/null &
     
     wait_for_desktop
     # Reconnect viewer
