@@ -94,14 +94,95 @@ menyalin file dari folder Download HP kamu." 10 60
     echo "$sel"
 }
 
+# Buat disk kosong baru (format qcow2). Echo nama file jika berhasil.
+create_new_disk() {
+    ensure_dirs
+    ds_sz=$(dialog --title "Ukuran Disk" --menu \
+"Pilih ukuran disk baru (dipakai untuk install OS):" 12 50 5 \
+         "8"  "8 GB  - Linux ringan" \
+         "15" "15 GB - rekomendasi / Linux + Windows ringan" \
+         "30" "30 GB - Windows / banyak ruang" \
+         2>&1 >/dev/tty)
+    [ -z "$ds_sz" ] && return ""
+    read -r -p "Nama disk baru (contoh: linux-01): " nm < /dev/tty
+    [ -z "$nm" ] && return ""
+    local f="$DISKS_DIR/$nm.qcow2"
+    dialog --infobox "Membuat disk ${ds_sz}GB...\n$nm.qcow2\n\nMohon tunggu." 6 40
+    if qemu-img create -f qcow2 "$f" "${ds_sz}G" >/dev/null 2>&1; then
+        dialog --msgbox "✅ Disk dibuat:\n\n$nm.qcow2 (${ds_sz} GB)\n\nSekarang pilih disk ini untuk install OS." 8 55
+        echo "$nm.qcow2"
+    else
+        dialog --msgbox "❌ Gagal membuat disk. Periksa penyimpanan." 6 55
+        return ""
+    fi
+}
+
+# Pilih disk untuk sebuah ISO (installer). Tampilkan disk yang ada + opsi "I don't have disk"
+choose_disk_for_iso() {
+    ensure_dirs
+    # Guard anti-loop untuk re-kursi setelah import
+    [ "$_CDI_DEPTH" = "1" ] && return ""
+    _CDI_DEPTH=1
+    local disks=()
+    while IFS= read -r f; do
+        [ -f "$f" ] && disks+=("$(basename "$f")" "$(du -h "$f" | cut -f1)")
+    done < <(ls -1 "$DISKS_DIR"/*.qcow2 2>/dev/null)
+
+    # Jika tidak ada disk sama sekali, langsung tanya buat/import
+    if [ ${#disks[@]} -eq 0 ]; then
+        dialog --title "Belum Ada Disk" --yesno \
+"Belum ada disk untuk menginstall OS ini.
+\nMau buat disk baru sekarang?" 7 50
+        if [ $? -eq 0 ]; then
+            newnm=$(create_new_disk)
+            [ -n "$newnm" ] && echo "$newnm" && return 0
+        else
+            import_disk
+        fi
+        return 1
+    fi
+
+    # Ada disk: tampilkan daftar + opsi "I don't have disk"
+    local menu_items=("${disks[@]}" "---" "Tidak punya disk...")
+    local sel
+    sel=$(dialog --title "Pilih Disk untuk OS ini" \
+        --menu "\nPilih disk tempat OS mau diinstall,\natau pilih 'Tidak punya disk' untuk membuat/import." 16 62 8 \
+        "${menu_items[@]}" 2>&1 >/dev/tty)
+    [ -z "$sel" ] && return ""
+    case "$sel" in
+        "---") return "" ;;
+        "Tidak punya disk...")
+            cho=$(dialog --menu "Tidak Punya Disk" 12 55 5 \
+                "create" "Buat disk baru (create new disk)" \
+                "import" "Import disk dari Download" \
+                2>&1 >/dev/tty)
+            case "$cho" in
+                create)
+                    newnm=$(create_new_disk)
+                    [ -n "$newnm" ] && echo "$newnm" && return 0
+                    return ""
+                    ;;
+                import)
+                    import_disk
+                    # Import selesai. Kembalikan kosong; user akan disarankan
+                    # memilih lagi disk barunya dari Start (anti-loop).
+                    return ""
+                    ;;
+                *) return "" ;;
+            esac
+            ;;
+        *) echo "$sel" ;;
+    esac
+}
+
 start_vm() {
-    local disk="$1"
+    local file="$1"
     ensure_dirs
 
-    # Kalau disk belum ditentukan, minta pilih
-    if [ -z "$disk" ]; then
-        disk=$(pick_disk)
-        [ -z "$disk" ] && return
+    # Kalau file belum ditentukan, minta pilih (dari disk & isos)
+    if [ -z "$file" ]; then
+        file=$(pick_disk)
+        [ -z "$file" ] && return
     fi
 
     if check_vm_running; then
@@ -112,24 +193,43 @@ start_vm() {
     # Cleanup sockets
     rm -f "$MONITOR_SOCK" "$QMP_SOCK"
 
-    # Resolve path file (bisa .qcow2 di disks/ atau .iso di isos/)
     local FILE_PATH=""
-    if [[ "$disk" == *.iso ]]; then
-        FILE_PATH="$ISOS_DIR/$disk"
+    local TGT_DISK=""
+    if [[ "$file" == *.iso ]]; then
+        # ISO (installer): minta pilih/buat/import disk untuk install.
+        # Tanpa disk terpilih, boot dibatalkan (agar tidak bingung).
+        TGT_DISK=$(choose_disk_for_iso)
+        if [ -z "$TGT_DISK" ]; then
+            dialog --title "Disk Tidak Dipilih" --msgbox \
+"Boot dibatalkan karena belum ada disk untuk install OS.
+
+Pilih disk yang sudah ada, atau buat/import disk baru
+lewat opsi di menu pemilihan disk." 8 55
+            return
+        fi
+        FILE_PATH="$ISOS_DIR/$file"
+        if [ ! -f "$FILE_PATH" ]; then
+            dialog --msgbox "File tidak ditemukan: $FILE_PATH" 6 55
+            return
+        fi
     else
-        FILE_PATH="$DISKS_DIR/$disk"
-    fi
-    if [ ! -f "$FILE_PATH" ]; then
-        dialog --msgbox "File tidak ditemukan: $FILE_PATH" 6 55
-        return
+        # .qcow2: sudah jadi OS, langsung boot
+        FILE_PATH="$DISKS_DIR/$file"
+        if [ ! -f "$FILE_PATH" ]; then
+            dialog --msgbox "File tidak ditemukan: $FILE_PATH" 6 55
+            return
+        fi
     fi
 
-    # Start QEMU in background
+    # Start QEMU in background (pass target disk untuk ISO jika ada)
     cd "$BASE_DIR"
-    nohup setsid sh "$SCRIPTS_DIR/boot-fast.sh" "$FILE_PATH" > "$BASE_DIR/vm.log" 2>&1 </dev/null &
+    if [ -n "$TGT_DISK" ]; then
+        nohup setsid sh "$SCRIPTS_DIR/boot-fast.sh" "$FILE_PATH" "$DISKS_DIR/$TGT_DISK" > "$BASE_DIR/vm.log" 2>&1 </dev/null &
+    else
+        nohup setsid sh "$SCRIPTS_DIR/boot-fast.sh" "$FILE_PATH" > "$BASE_DIR/vm.log" 2>&1 </dev/null &
+    fi
     
     wait_for_desktop
-    # Reconnect viewer
     if command -v vncviewer >/dev/null; then
         nohup env DISPLAY=:0 vncviewer -FullScreen=1 127.0.0.1:5901 >/dev/null 2>&1 &
     fi
@@ -392,7 +492,7 @@ Cara pakai:
         dialog --title "Import" --infobox "Menyalin ISO...\n$base\n\nMohon tunggu, file besar butuh waktu." 6 40
         cp "$chosen" "$dest" 2>/dev/null
         if [ -f "$dest" ]; then
-            dialog --msgbox "✅ Selesai.\n\n'$base' disalin ke isos/ (dipakai untuk install Windows)." 7 55
+            dialog --msgbox "✅ Selesai.\n\n'$base' disalin ke isos/ (dipakai untuk install OS)." 7 55
         else
             dialog --msgbox "❌ Gagal menyalin. Cek sisa penyimpanan dan izin storage." 6 55
         fi
@@ -406,7 +506,7 @@ while true; do
     clear
     choice=$(dialog --title "AYSRAF PM v1.0" \
         --menu "Select an option" 18 60 10 \
-        1 "Start Windows" \
+        1 "Start VM (Windows / Linux)" \
         2 "Import dari Download" \
         3 "Shutdown VM" \
         4 "Machine (RAM & CPU)" \

@@ -37,7 +37,7 @@ ARGS="$ARGS -drive file=fat:rw:$VM_DIR/transfer,format=raw,if=none,id=unis"
 ARGS="$ARGS -device ide-hd,bus=ahci2.0,drive=unis"
 ARGS="$ARGS -device virtio-net-pci,netdev=net0"
 ARGS="$ARGS -netdev user,id=net0,ipv6=off"
-ARGS="$ARGS -vga qxl"
+ARGS="$ARGS -vga std"
 ARGS="$ARGS -display vnc=127.0.0.1:1"
 ARGS="$ARGS -monitor unix:$VM_DIR/monitor.sock,server=on,wait=off"
 ARGS="$ARGS -qmp unix:$VM_DIR/qmp.sock,server=on,wait=off"
@@ -49,6 +49,13 @@ if [ "$IS_ISO" = "1" ]; then
     # Boot dari ISO (installer / live). Mount sebagai CD-ROM.
     ARGS="$ARGS -drive file=$BOOT_FILE,if=none,id=cd0,format=raw,media=cdrom,readonly=on"
     ARGS="$ARGS -device ide-cd,bus=ahci.0,drive=cd0"
+    # Jika argumen ke-2 diberikan = disk target kosong untuk install OS.
+    # Pasang sebagai drive kedua biar installer bisa menulis ke sana.
+    TARGET="$2"
+    if [ -n "$TARGET" ] && [ -f "$TARGET" ]; then
+        ARGS="$ARGS -drive file=$TARGET,if=none,id=disk0,format=qcow2,cache=writeback,discard=unmap"
+        ARGS="$ARGS -device ide-hd,bus=ahci.2,drive=disk0"
+    fi
 else
     # Boot dari disk .qcow2
     ARGS="$ARGS -drive file=$BOOT_FILE,if=none,id=disk0,format=qcow2,cache=writeback,discard=unmap"
