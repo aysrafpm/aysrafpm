@@ -129,9 +129,6 @@ create_new_disk() {
 # Pilih disk untuk sebuah ISO (installer). Tampilkan disk yang ada + opsi "I don't have disk"
 choose_disk_for_iso() {
     ensure_dirs
-    # Guard anti-loop untuk re-kursi setelah import
-    [ "$_CDI_DEPTH" = "1" ] && return ""
-    _CDI_DEPTH=1
     local disks=()
     while IFS= read -r f; do
         [ -f "$f" ] && disks+=("$(basename "$f")" "$(du -h "$f" | cut -f1)")
