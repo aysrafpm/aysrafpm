@@ -15,7 +15,7 @@ pkg install -y x11-repo >/dev/null 2>&1 || true
 pkg update -y
 
 echo "[3/8] Memasang dependensi..."
-pkg install -y qemu-system-x86_64 dialog python tesseract \
+pkg install -y qemu-system-x86_64 qemu-utils dialog python tesseract \
   python-pillow tigervnc bc procps
 
 echo "[4/8] Menginstal AYSRAF PM..."
