@@ -166,37 +166,60 @@ choose_disk_for_iso() {
         return 1
     fi
 
-    # Ada disk: tampilkan daftar + opsi "I don't have disk"
-    local menu_items=("${disks[@]}" "---" "Tidak punya disk...")
+    # Ada disk: tampilkan daftar + opsi "I don't have disk".
+    # Pisahkan & tandai disk Windows agar tidak terkesan campur.
+    local menu_items=() win_items=() other_items=()
+    local dname dsize iswin
+    while IFS= read -r -d ' ' dname; do
+        [ -z "$dname" ] && continue
+        IFS= read -r dsize
+        iswin=""
+        case "${dname,,}" in *win*|*windows*) iswin="1";; esac
+        if [ -n "$iswin" ]; then
+            win_items+=("$dname" "WINDOWS (jangan dipakai OS lain)")
+        else
+            other_items+=("$dname" "Disk kosong / lainnya")
+        fi
+    done < <(for i in "${disks[@]}"; do printf '%s ' "$i"; done)
+
+    if [ ${#other_items[@]} -gt 0 ]; then
+        menu_items+=("[ Siap dipakai untuk install ]" "")
+        menu_items+=("${other_items[@]}")
+    fi
+    if [ ${#win_items[@]} -gt 0 ]; then
+        menu_items+=("---" "Disk Windows (terpisah)")
+        menu_items+=("${win_items[@]}")
+    fi
+    menu_items+=("___" "Tidak punya disk...")
+
     local sel
     sel=$(dialog --title "Pilih Disk untuk OS ini" \
-        --menu "\nPilih disk tempat OS mau diinstall,\natau pilih 'Tidak punya disk' untuk membuat/import." 16 62 8 \
+        --menu "\nPilih disk kosong untuk install OS ini.\n(Disk Windows ditampilkan terpisah, jangan dipakai.)" 17 64 10 \
         "${menu_items[@]}" 2>&1 >/dev/tty)
-    [ -z "$sel" ] && return ""
+    # lewatkan header/separator
     case "$sel" in
-        "---") return "" ;;
-        "Tidak punya disk...")
-            cho=$(dialog --menu "Tidak Punya Disk" 12 55 5 \
-                "create" "Buat disk baru (create new disk)" \
-                "import" "Import disk dari Download" \
-                2>&1 >/dev/tty)
-            case "$cho" in
-                create)
-                    newnm=$(create_new_disk)
-                    [ -n "$newnm" ] && echo "$newnm" && return 0
-                    return ""
-                    ;;
-                import)
-                    import_disk
-                    # Import selesai. Kembalikan kosong; user akan disarankan
-                    # memilih lagi disk barunya dari Start (anti-loop).
-                    return ""
-                    ;;
-                *) return "" ;;
-            esac
-            ;;
-        *) echo "$sel" ;;
+        "[ Siap dipakai untuk install ]"|"---"|"___") sel="" ;;
     esac
+    [ -z "$sel" ] && return ""
+    if [ "$sel" = "Tidak punya disk..." ]; then
+        cho=$(dialog --menu "Tidak Punya Disk" 12 55 5 \
+            "create" "Buat disk baru (create new disk)" \
+            "import" "Import disk dari Download" \
+            2>&1 >/dev/tty)
+        case "$cho" in
+            create)
+                newnm=$(create_new_disk)
+                [ -n "$newnm" ] && echo "$newnm" && return 0
+                return ""
+                ;;
+            import)
+                import_disk
+                return ""
+                ;;
+            *) return "" ;;
+        esac
+    fi
+    [[ "$sel" == *".qcow2" ]] && echo "$sel" || echo ""
 }
 
 start_vm() {
